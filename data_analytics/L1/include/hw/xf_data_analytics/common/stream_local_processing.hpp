@@ -26,8 +26,8 @@
 
 #include <ap_int.h>
 #include <hls_stream.h>
-#include "xf_data_analytics/common/math_helper.hpp"
 #include "xf_data_analytics/common/enums.hpp"
+#include "xf_data_analytics/common/math_helper.hpp"
 
 namespace xf {
 namespace data_analytics {
@@ -89,12 +89,7 @@ class ExpLatency<double> {
  * @tparam C Function pointer C.
  * @tparam Latency Latency of function B.
  */
-template <typename MType,
-          int D,
-          MType (*A)(MType op1, MType op2),
-          void (*B)(MType& reg, MType op),
-          MType (*C)(MType op),
-          int Latency>
+template <typename MType, int D, MType (*A)(MType op1, MType op2), void (*B)(MType& reg, MType op), MType (*C)(MType op), int Latency>
 class ss {
    private:
     // Local buffer latency is longer than Latency of function B.
@@ -103,9 +98,7 @@ class ss {
     static const int LatencyR = Latency + 5;
     static const int localStrmDepth = (LatencyB * LatencyB * 2);
 
-    void process0(const ap_uint<32> cols,
-                  hls::stream<ap_uint<32> >& batchStrm1,
-                  hls::stream<ap_uint<32> >& batchStrm2) {
+    void process0(const ap_uint<32> cols, hls::stream<ap_uint<32> >& batchStrm1, hls::stream<ap_uint<32> >& batchStrm2) {
         ap_uint<32> batch = (cols + D - 1) / D;
         batchStrm1.write(batch);
         batchStrm2.write(batch);
@@ -405,10 +398,7 @@ class ss {
         eFullMergeStrm.write(true);
     }
 
-    void processC(hls::stream<MType> fullMergeStrm[LatencyB],
-                  hls::stream<MType>& retStrm,
-                  const ap_uint<32> rows,
-                  const ap_uint<32> cols) {
+    void processC(hls::stream<MType> fullMergeStrm[LatencyB], hls::stream<MType>& retStrm, const ap_uint<32> rows, const ap_uint<32> cols) {
     LOOP_C_1:
         for (ap_uint<32> i = 0; i < rows; i++) {
 #pragma HLS loop_tripcount min = 200 max = 200 avg = 200
@@ -1400,26 +1390,37 @@ class sl2 {
                  ap_uint<32> cols,
                  ap_uint<32> ws) {
 #pragma HLS dataflow
+        // stream数组（中间流）
         hls::stream<MType> rOpStrm[D];
         hls::stream<MType> partMergeStrm[K];
         hls::stream<MType> fullMergeStrm[K][LatencyB];
+
+        // 结束标志流
         hls::stream<bool> eROpStrm;
         hls::stream<bool> ePartMergeStrm;
         hls::stream<bool> eFullMergeStrm;
+
+        // 流深度
 #pragma HLS stream variable = rOpStrm depth = localStrmDepth
 #pragma HLS stream variable = partMergeStrm depth = localStrmDepth
 #pragma HLS stream variable = fullMergeStrm depth = localStrmDepth
 #pragma HLS stream variable = eROpStrm depth = localStrmDepth
 #pragma HLS stream variable = ePartMergeStrm depth = localStrmDepth
 #pragma HLS stream variable = eFullMergeStrm depth = localStrmDepth
+
+        // stream数组分区
 #pragma HLS array_partition variable = rOpStrm dim = 1 complete
 #pragma HLS array_partition variable = partMergeStrm dim = 1 complete
 #pragma HLS array_partition variable = fullMergeStrm dim = 1 complete
 #pragma HLS array_partition variable = fullMergeStrm dim = 2 complete
-        processR(opStrm, eOpStrm, rOpStrm, eROpStrm, ws);
-        processA(rOpStrm, eROpStrm, cols, ws, partMergeStrm, ePartMergeStrm);
-        processB(partMergeStrm, ePartMergeStrm, cols, ws, fullMergeStrm, eFullMergeStrm);
-        processC(fullMergeStrm, eFullMergeStrm, cols, ws, retStrm, eRetStrm);
+
+        // 处理函数
+        //这里用C语言直接将流绑定。而在graphlily中，使用ini文件中的sp绑定流
+        //也就是说，这里是C-testbench写法，而不是openCL的写法。
+        processR(opStrm, eOpStrm, rOpStrm, eROpStrm, ws);                                 // opStream->rOpStream
+        processA(rOpStrm, eROpStrm, cols, ws, partMergeStrm, ePartMergeStrm);             // rOpStream->partMergeStream
+        processB(partMergeStrm, ePartMergeStrm, cols, ws, fullMergeStrm, eFullMergeStrm); // partMergeStream->fullMergeStream
+        processC(fullMergeStrm, eFullMergeStrm, cols, ws, retStrm, eRetStrm);             // fullMergeStream->retStream
     }
 
     void setWeight(MType inputW[K][D][KMax * DMax], ap_uint<32> cols, ap_uint<32> ws) {
@@ -1480,7 +1481,9 @@ class sl2 {
     }
 
     // special case for K = 1, KMax = 1
-    void setIntercept(MType inputI) { intercept[0][0] = inputI; }
+    void setIntercept(MType inputI) {
+        intercept[0][0] = inputI;
+    }
 };
 
 template <typename MType, int K, int KMax, void (*func)(MType& reg, MType op), int Latency>
@@ -1844,11 +1847,8 @@ class s_aggr {
     }
 
     // MType sum[K][KMax * L];
-    void processAggrAvg(hls::stream<MType> retStrm[K],
-                        hls::stream<bool>& eRetStrm,
-                        ap_uint<32> ws,
-                        MType aggrRes[K][KMax],
-                        MType avgRes[K][KMax]) {
+    void processAggrAvg(
+        hls::stream<MType> retStrm[K], hls::stream<bool>& eRetStrm, ap_uint<32> ws, MType aggrRes[K][KMax], MType avgRes[K][KMax]) {
         ap_uint<32> ptrK = 0;
         ap_uint<32> ptrTK = 0;
         ap_uint<32> ptrL = 0;
@@ -2373,11 +2373,8 @@ class pickMaxProcess {
         // std::cout << "maxMargin:" << maxMargin << "  maxIndex:" << maxIndex << std::endl << std::endl;
     }
 
-    void pickFromL(MType margin[CompareLatency],
-                   ap_uint<32> index[CompareLatency],
-                   ap_uint<32> ws,
-                   MType& maxMargin,
-                   ap_uint<32>& maxIndex) {
+    void pickFromL(
+        MType margin[CompareLatency], ap_uint<32> index[CompareLatency], ap_uint<32> ws, MType& maxMargin, ap_uint<32>& maxIndex) {
         /*
         std::cout << "pickFromL: ws  " << ws << std::endl;
         for(int i = 0; i < L; i++) {

@@ -1,0 +1,6 @@
+CompileFlags:
+  Add: [
+        "-I/home/hanggu/USTC/HLS_Learning/Vitis_Libraries",
+        "-I/home/hanggu/USTC/HLS_Learning/Vitis_Libraries/data_analytics/L1/include/hw",
+        "-I/tools/Xilinx/Vitis_HLS/2023.2/include",
+    ]

@@ -16,11 +16,13 @@
  */
 #include "xf_data_analytics/classification/svm_predict.hpp"
 #include "xf_data_analytics/common/table_sample.hpp"
-typedef double DataType;
-const int dw = sizeof(DataType) * 8;
-const int streamN = 8;
-const int sampleD = 4;
+typedef double DataType;             // MType和DataType是相同的
+const int dw = sizeof(DataType) * 8; // WD
+const int streamN = 8;               // StreamN
+const int sampleD = 4;               // SampleDepth
 #define MAX_CLASS_BITS_ 8
+
+// top函数
 void dut(const int cols,
          hls::stream<DataType> sample_strm[8],
          hls::stream<bool>& e_sample_strm,
@@ -28,18 +30,20 @@ void dut(const int cols,
          hls::stream<bool>& eTag,
          hls::stream<ap_uint<1> >& predictionsStrm,
          hls::stream<bool>& predictionsTag) {
-    xf::data_analytics::classification::svmPredict<DataType, dw, streamN, sampleD>(
-        cols, sample_strm, e_sample_strm, weight_strm, eTag, predictionsStrm, predictionsTag);
+    xf::data_analytics::classification::svmPredict<DataType, dw, streamN, sampleD>(cols, sample_strm, e_sample_strm, weight_strm, eTag,
+                                                                                   predictionsStrm, predictionsTag);
 }
 
+// NOTE: 仿真时测试。__SYNTHESIS__是vitis HLS在综合时自动定义的宏
 #ifndef __SYNTHESIS__
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <string>
 int main() {
     int test_num = 999;
-    int features_num = 28;
-    int numClass = 2;
+    int features_num =
+        28; //特征数量.本test中数据有28个。后面的sample_strm数组长度为8，所以4个周期可以读取完毕，即stream深度至少为4，但是需要一些冗余深度
+    int numClass = 2; //类别数量
 
     std::ifstream fin_test("1000.csv");
     DataType* testsets = (DataType*)malloc(sizeof(DataType) * test_num * (features_num + 1));
@@ -93,12 +97,12 @@ int main() {
     }
 
     // gen predict data
-    hls::stream<DataType> sample_strm[8];
+    hls::stream<DataType> sample_strm[8]; // sample_strm并行度为8。一个周期读8个数据
     hls::stream<bool> e_sample_strm;
     hls::stream<ap_uint<512> > weight_strm;
     hls::stream<bool> eTag;
     hls::stream<ap_uint<1> > predictionsStrm;
-    hls::stream<ap_uint<1> > goldenStrm;
+    hls::stream<ap_uint<1> > goldenStrm; //testbench的输出
     hls::stream<bool> predictionsTag;
 
     for (int i = 0; i < test_num; i++) {
@@ -121,6 +125,7 @@ int main() {
     }
     e_sample_strm.write(true);
 
+    // eTag是提前写好的结束标志流
     for (int i = 0; i < features_num / 8 + 1; i++) {
         weight_strm.write(weight[i]);
         eTag.write(false);
